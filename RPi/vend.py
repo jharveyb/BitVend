@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from types import StringType
 from types import ListType
+# import pdb
 
 
 def pricefetch():
@@ -18,7 +19,7 @@ def logwrite(string, filname):
     fil = open(filname, 'a')
     if type(string) is ListType:
         fil.writelines(string)
-    if type(string) is StringType:
+    elif type(string) is StringType:
         fil.write(string)
     fil.close()
 
@@ -34,9 +35,8 @@ def main():
     oldbal = float('inf')
     price = 540
     testflag = False
-    fil = open(filname, 'a')
-    fil.write(str(addr + "\n"))
-    fil.close()
+    # pdb.set_trace()
+    logwrite(str(addr + "\n"), filname)
     if len(sys.argv) >= 2:
         if bool(sys.argv[1]) is True:
             testflag = True
@@ -47,9 +47,7 @@ def main():
             import RPi.GPIO as GPIO
             GPIO.setmode(GPIO.BOARD)
             GPIO.setup(12, GPIO.OUT, initial=GPIO.LOW)
-    fil = open(filname, 'a')
-    fil.write(str(str(testflag) + "\n"))
-    fil.close()
+    logwrite(str(str(testflag) + "\n"), filname) 
     while count != 0:
         price = pricefetch()
         print price
@@ -58,36 +56,26 @@ def main():
         info = details(addr)
         curbal = info["final_balance"]
         print curbal
-        fil = open(filname, 'a')
         seq = [str(price) + "\n", str(satprice) + "\n", str(curbal) + "\n"]
-        fil.writelines(seq)
-        fil.close()
+        logwrite(seq, filname)
         if curbal != oldbal:
             print "Change!"
             diff = curbal - oldbal
-            fil = open(filname, 'a')
-            fil.write("Satoshis sent-\n" + str(diff) + "\n")
-            fil.close()
+            logwrite(str("Satoshis sent-\n" + str(diff) + "\n"), filname)
             if diff*satprice >= 0.95:
                 print "Received %s satoshis!" % diff
                 timex = datetime.today()
-                fil = open(filname, 'a')
-                fil.write("Transaction price-\n" + str(diff*satprice) + "\n")
-                fil.write(timex.strftime("%j%H%M") + "\n")
-                fil.close()
+                gseq = ["Transaction price-\n" + str(diff*satprice) + "\n", timex.strftime("%j%H%M") + "\n"]
+                logwrite(gseq, filname)
                 if testflag is True:
                     print "Valid transaction!"
-                    fil = open(filname, 'a')
-                    fil.write("Valid test transaction.\n")
-                    fil.close()
+                    logwrite("Valid test transaction.\n", filname)
                 else:
                     print "Registering currency!"
                     GPIO.output(12, True)
                     time.sleep(0.1)
                     GPIO.output(12, False)
-                    fil = open(filname, 'a')
-                    fil.write("Valid output to Arduino.\n")
-                    fil.close()
+                    logwrite("Valid output to Arduino.\n", filname)
         oldbal = curbal
         count -= 1
         time.sleep(20)
