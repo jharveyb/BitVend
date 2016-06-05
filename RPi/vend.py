@@ -9,10 +9,13 @@ from types import ListType
 # import pdb
 
 
-def pricefetch():
-    page = urllib2.urlopen("https://blockchain.info/q/24hrprice")
-    pageinfo = float(page.read())
-    return pageinfo
+def pricefetch(price):
+    try:
+        page = urllib2.urlopen("https://blockchain.info/q/24hrprice")
+        pageinfo = float(page.read())
+        return pageinfo
+    except:
+        return price
 
 
 def logwrite(string, filname):
@@ -49,7 +52,7 @@ def main():
             GPIO.setup(12, GPIO.OUT, initial=GPIO.LOW)
     logwrite(str(str(testflag) + "\n"), filname) 
     while count != 0:
-        price = pricefetch()
+        price = pricefetch(price)
         print price
         satprice = price / 1e8
         print satprice
