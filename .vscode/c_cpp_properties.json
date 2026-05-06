@@ -1,0 +1,13 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**"
+            ],
+            "defines": [],
+            "compilerPath": "/usr/lib/ccache/clang"
+        }
+    ],
+    "version": 4
+}

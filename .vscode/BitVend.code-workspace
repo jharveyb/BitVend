@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "..",
+		},
+		{
+			"name": "Arduino/platformio (PlatformIO)",
+			"path": "../Arduino/platformio",
+		}
+	],
+	"settings": {}
+}
