@@ -1,0 +1,15 @@
+[Unit]
+Description=BitVend: Lightning payments to vending machine quarters
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+# The user must be in the `gpio` group.
+User=dci
+EnvironmentFile=/etc/bitvend.env
+ExecStart=/usr/local/bin/bitvend
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

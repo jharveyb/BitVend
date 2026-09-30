@@ -1,0 +1,21 @@
+[package]
+name = "bitvend"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+description = "Turns Lightning payments into quarters for a vending machine"
+publish = false
+
+[dependencies]
+anyhow = "1"
+# Lightning wallet SDK: https://docs.lexe.tech/rust/quickstart/
+lexe = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Raspberry Pi GPIO.
+rppal = "0.22"
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = "3"

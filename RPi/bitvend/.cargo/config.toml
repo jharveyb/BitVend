@@ -1,0 +1,20 @@
+# Cross-compiling for the 64-bit Raspberry Pi, using only rustup + clang:
+#
+#   rustup target add aarch64-unknown-linux-musl
+#   cargo build --release --target aarch64-unknown-linux-musl
+#
+# The musl target ships its own C library, so no aarch64 sysroot is needed. The
+# result is a single static binary that runs on any 64-bit Raspberry Pi OS.
+# Needs `clang` and `llvm-ar` (Debian: `apt install clang llvm`) to compile the
+# C code in the `ring` and `secp256k1` crypto crates.
+
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"
+# Lets `cargo test --target aarch64-unknown-linux-musl` run under emulation
+# (Debian: `apt install qemu-user`).
+runner = "qemu-aarch64"
+
+[env]
+CC_aarch64_unknown_linux_musl = "clang"
+CFLAGS_aarch64_unknown_linux_musl = "--target=aarch64-linux-musl"
+AR_aarch64_unknown_linux_musl = "llvm-ar"

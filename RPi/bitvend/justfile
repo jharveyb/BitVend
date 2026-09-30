@@ -1,0 +1,78 @@
+# BitVend Pi service. Run `just` to list recipes.
+
+# 64-bit Raspberry Pi target (static musl binary; see .cargo/config.toml).
+pi_target := "aarch64-unknown-linux-musl"
+
+# Network for the test wallets: `testnet3` (default) or `mainnet`, e.g. `just net=mainnet test-live`.
+net := env("BITVEND_TEST_NETWORK", "testnet3")
+
+# The test wallets ("machine" and "payer") for that network. Never the production wallet!
+test_dir := env("BITVEND_TEST_DIR", home_directory() / ".lexe-bitvend-test" + if net == "mainnet" { "/mainnet" } else { "" })
+lexe_machine := "lexe --network " + net + " --lexe-data-dir " + test_dir / "machine"
+lexe_payer := "lexe --network " + net + " --lexe-data-dir " + test_dir / "payer"
+
+[private]
+default:
+    @just --list
+
+# Build for this machine.
+build:
+    cargo build --release
+
+# Build for the Raspberry Pi.
+cross:
+    rustup target add {{pi_target}}
+    cargo build --release --target {{pi_target}}
+    @echo "Built target/{{pi_target}}/release/bitvend"
+
+# Run the offline tests.
+test:
+    cargo test
+
+# Run the offline tests as Pi binaries under qemu.
+cross-test:
+    rustup target add {{pi_target}}
+    cargo test --target {{pi_target}}
+
+# Format and lint.
+check:
+    cargo fmt --check
+    cargo clippy --all-targets -- -D warnings
+
+# Create the test wallets and the machine's client credentials (safe to re-run).
+setup-test-wallets:
+    {{lexe_machine}} init
+    {{lexe_payer}} init
+    test -s {{test_dir}}/machine-client.json || (umask 077 && {{lexe_machine}} create-client --json \
+        --label bitvend-test --scope read_info --scope receive --scope read_payments \
+        --permission update_personal_note --never-expires > {{test_dir}}/machine-client.json)
+    @echo "Fund the payer by paying at least 10,000 sats over Lightning to:"
+    @{{lexe_payer}} get-human-bitcoin-address --json | jq -r .lightning_address
+
+# Show the test wallets' balances and channels.
+test-wallets:
+    {{lexe_machine}} node-info
+    {{lexe_payer}} node-info
+
+# Run the service locally against the test machine wallet, logging pulses instead of using GPIO.
+run-test:
+    BITVEND_NETWORK={{net}} BITVEND_GPIO=fake \
+    LEXE_CLIENT_CREDENTIALS="$(jq -r .client_credentials {{test_dir}}/machine-client.json)" \
+    LEXE_DATA_DIR={{test_dir}}/machine-service \
+    cargo run --release
+
+# Pay the test machine wallet from the payer wallet, e.g. `just pay 1000`.
+pay sats:
+    {{lexe_payer}} pay-offer "$({{lexe_machine}} get-human-bitcoin-address --json | jq -r .offer)" \
+        --amount-sats {{sats}} --message "bitvend manual test"
+
+# Live end-to-end test: the payer pays the machine, and we check the quarters sent.
+test-live:
+    BITVEND_TEST_NETWORK={{net}} \
+    BITVEND_TEST_CLIENT_CREDENTIALS="$(jq -r .client_credentials {{test_dir}}/machine-client.json)" \
+    BITVEND_TEST_PAYER_DIR={{test_dir}}/payer \
+    cargo test --test live -- --ignored --nocapture
+
+# Copy the Pi build and service files to the Pi, e.g. `just deploy dci@bitvend.local`.
+deploy host: cross
+    scp target/{{pi_target}}/release/bitvend bitvend.service bitvend.env.example {{host}}:

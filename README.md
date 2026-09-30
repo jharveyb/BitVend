@@ -3,8 +3,7 @@
 Most recent code for each system is:
 
 Arduino - Arduino/platformio/src/vend_hack.cpp
-RPi - vendnew.py
-Misc - vendrun.sh (for cron job/ systemd service + collecting logs)
+RPi - RPi/bitvend/ (Rust service; see RPi/bitvend/SETUP.md). The old Python 2 scripts are in RPi/legacy/.
 
 Docs for the vending machine itself are all in docs/ - CONLUX for the billmech, tcr6xxx for the coinmech,
 and the other two for the rest of the machine, including the control board.
@@ -31,11 +30,11 @@ These recordings are stored at the top of `vend_hack.cpp`.
 
 The responsibilities of each component are:
 
-- Raspberry Pi: Use some API or other service to check a Bitcoin balance; if funds were
-        received, communicate with the Arduino to grant a similar-enough credit on the
-        vending machine.
-- Arduino: Wait for messages from the Pi, and grant credit on the vending machine by
-        replaying coin signal recordings.
+- Raspberry Pi: Receive Lightning payments to a static address (Lexe wallet), convert
+        each payment to USD, round up to the next quarter, and pulse a GPIO pin once
+        per quarter.
+- Arduino: For each pulse from the Pi, grant one quarter of credit on the vending
+        machine by replaying a coin signal recording.
 - Vending Machine: Accurately list prices for items, and vend them. Can optionally
         provide change.
 
@@ -55,4 +54,15 @@ There is an ON/OFF switch behind the bill acceptor; that is for the whole vendin
 
 ## Accepting Funds
 
-TODO
+Customers pay over Lightning to a static Lightning Address / BIP353 address
+(`₿name@lexe.app`), shown as a QR code on the machine. The Pi runs `RPi/bitvend`, a
+small Rust service built on the [Lexe](https://docs.lexe.tech) wallet SDK, which:
+
+1. Waits for incoming Lightning payments.
+2. Converts each one to USD at the current BTC price (Coinbase, falling back to Kraken).
+3. Rounds up to the next quarter. Payments under 25¢ are ignored.
+4. Pulses Pi physical pin 12 (BCM 18) once per quarter; this pin is wired to Arduino pin 10.
+
+The Pi holds only receive-only Lexe credentials; the wallet's seed phrase stays on an
+admin machine. See `RPi/bitvend/SETUP.md` for setup, deployment and tests, and
+`Arduino/platformio/README.md` for the pulse protocol.

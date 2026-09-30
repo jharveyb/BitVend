@@ -8,5 +8,7 @@
 			"path": "../Arduino/platformio",
 		}
 	],
-	"settings": {}
+	"settings": {
+		"rust-analyzer.linkedProjects": ["RPi/bitvend/Cargo.toml"]
+	}
 }
