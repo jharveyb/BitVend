@@ -1,2 +1,5 @@
+.claude/
 .serena/
+*.env
+machine-client.json
 RPi/bitvend/target
