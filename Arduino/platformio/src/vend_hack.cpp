@@ -230,7 +230,8 @@ void fakeQuarter(unsigned int s[], unsigned int i[], unsigned int d[]) {
 // Replay one recorded quarter, cycling through the four recordings.
 void quarter() {
   fakeQuarter(QUARTERS[quarter_idx][0], QUARTERS[quarter_idx][1], QUARTERS[quarter_idx][2]);
-  quarter_idx = (quarter_idx + 1) % 4;
+  // Actually, ignore the fourth quarter since its longer than the others.
+  quarter_idx = (quarter_idx + 1) % 3;
 }
 
 void loop() {
