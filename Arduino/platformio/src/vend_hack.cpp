@@ -84,6 +84,9 @@ void driveLine(int pin, bool active) {
   }
 }
 
+// Recording coinmech signals (to make new QUARTERn_* recordings) is off by
+// default. Build with -D RECORD_SIGNALS to turn it on: pio run -e ATmega328P_record
+#ifdef RECORD_SIGNALS
 void(* resetFunc) (void) = 0;
 
 // Timestamp we started recording coinmech signals.
@@ -103,9 +106,11 @@ unsigned int data_s[ARRAY_SIZE];
 unsigned int data_i[ARRAY_SIZE];
 unsigned int data_d[ARRAY_SIZE];
 
-// Starting state we compare each coinmech wire to; so we're watching for a falling edge (?).
-int last_s, last_i, last_d = HIGH;
+// Idle level of the coinmech lines (pulled up). All three must start HIGH, or
+// the first loop() sees a "change" and records a bogus message at boot.
+int last_s = HIGH, last_i = HIGH, last_d = HIGH;
 int idx_s, idx_i, idx_d = 0;
+#endif // RECORD_SIGNALS
 
 void setup() {
   pinMode(IN_SEND_PIN, INPUT_PULLUP);
@@ -120,9 +125,14 @@ void setup() {
   pinMode(IN_DEBUG, INPUT_PULLUP);
 
   Serial.begin(9600);
+#ifdef RECORD_SIGNALS
+  Serial.println("Welcome! (recording signals)");
+#else
   Serial.println("Welcome!");
+#endif
 }
 
+#ifdef RECORD_SIGNALS
 void eraseArrays() {
   for (int i=0; i<ARRAY_SIZE; i++) {
     data_s[i]=0;
@@ -154,6 +164,57 @@ void printArrays() {
   Serial.println(" }");
   Serial.println("--------------------");
 }
+
+// Record the coinmech signals read in loop().
+void recordSignals(int s, int i, int d, unsigned long time) {
+  // If we aren't currently recording a signal, and the level on any coinmech
+  // wire changed, start recording by setting an initial timestamp.
+  if (!is_in_message && (s != last_s || i!= last_i || d != last_d)) {
+    is_in_message = true;
+    epoch_micros = time;
+    last_s_micros = time;
+    last_i_micros = time;
+    last_d_micros = time;
+  }
+
+  // For every level change on each wire, record the time since that wire's previous change.
+  if (s != last_s) {
+    data_s[idx_s++] = (time-last_s_micros);
+    last_s_micros = time;
+  }
+
+  if (i != last_i) {
+    data_i[idx_i++] = (time-last_i_micros);
+    last_i_micros = time;
+  }
+
+  if (d != last_d) {
+    data_d[idx_d++] = (time-last_d_micros);
+    last_d_micros = time;
+  }
+
+  // Limit the number of level changes we'll record.
+  if (idx_s > ARRAY_SIZE || idx_i > ARRAY_SIZE || idx_d > ARRAY_SIZE) {
+    Serial.println("UNEXPECTED!");
+    resetFunc();
+  }
+
+  last_s = s;
+  last_i = i;
+  last_d = d;
+
+  // Limit the duration of a signal recording. Print whatever we've recorded and
+  // reset the recording state.
+  if (is_in_message && (((time - epoch_micros)/1000) > MAX_MESSAGE_LENGTH_MILLIS)) {
+    is_in_message = false;
+    printArrays();
+    idx_s = 0;
+    idx_i = 0;
+    idx_d = 0;
+    eraseArrays();
+  }
+}
+#endif // RECORD_SIGNALS
 
 // Replay the recording of coinmech signals that represent a quarter.
 void fakeQuarter(unsigned int s[], unsigned int i[], unsigned int d[]) {
@@ -238,8 +299,6 @@ void quarter() {
 }
 
 void loop() {
-  unsigned long time = micros();
-
   // Copy the coinmech inputs to the outputs: a line reading 0 V (active) is
   // pulled to 0 V on the output side too. With pins 2-4 unconnected they read
   // HIGH (pull-up), so this just keeps the outputs let go.
@@ -251,52 +310,9 @@ void loop() {
   driveLine(OUT_INTR_PIN, !i);
   driveLine(OUT_DATA_PIN, !d);
 
-  // If we aren't currently recording a signal, and the level on any coinmech
-  // wire changed, start recording by setting an initial timestamp.
-  if (!is_in_message && (s != last_s || i!= last_i || d != last_d)) {
-    is_in_message = true;
-    epoch_micros = time;
-    last_s_micros = time;
-    last_i_micros = time;
-    last_d_micros = time;
-  }
-
-  // For every level change on each wire, record the time since that wire's previous change.
-  if (s != last_s) {
-    data_s[idx_s++] = (time-last_s_micros);
-    last_s_micros = time;
-  }
-
-  if (i != last_i) {
-    data_i[idx_i++] = (time-last_i_micros);
-    last_i_micros = time;
-  }
-
-  if (d != last_d) {
-    data_d[idx_d++] = (time-last_d_micros);
-    last_d_micros = time;
-  }
-
-  // Limit the number of level changes we'll record.
-  if (idx_s > ARRAY_SIZE || idx_i > ARRAY_SIZE || idx_d > ARRAY_SIZE) {
-    Serial.println("UNEXPECTED!");
-    resetFunc();
-  }
-
-  last_s = s;
-  last_i = i;
-  last_d = d;
-
-  // Limit the duration of a signal recording. Print whatever we've recorded and
-  // reset the recording state.
-  if (is_in_message && (((time - epoch_micros)/1000) > MAX_MESSAGE_LENGTH_MILLIS)) {
-    is_in_message = false;
-    printArrays();
-    idx_s = 0;
-    idx_i = 0;
-    idx_d = 0;
-    eraseArrays();
-  }
+#ifdef RECORD_SIGNALS
+  recordSignals(s, i, d, micros());
+#endif
 
   // Main functionality; replay one quarter for each rising edge from the Raspberry Pi.
   int raspi = digitalRead(IN_RASPI);

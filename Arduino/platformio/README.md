@@ -93,6 +93,21 @@ pio device monitor        # serial monitor at 9600 baud
 
 To target a specific port: `pio run -t upload --upload-port /dev/ttyUSB0`.
 
+### Recording new coin signals
+
+Recording is off by default. The `ATmega328P_record` environment builds with
+`-D RECORD_SIGNALS`, which also records the coinmech signals on pins 2–4 and
+prints them over Serial as C arrays, ready to paste into `vend_hack.cpp`:
+
+```sh
+pio run -e ATmega328P_record -t upload
+```
+
+Its startup message is `Welcome! (recording signals)`. Both builds pass pins
+2–4 through to pins 5–7; with nothing connected to pins 2–4, that just keeps
+the lines released. `pio run -e ATmega328P -e ATmega328P_record` checks that
+both builds compile.
+
 ## Source
 
 - [src/vend_hack.cpp](src/vend_hack.cpp) — full firmware. Ported from
