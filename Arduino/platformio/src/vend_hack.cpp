@@ -5,13 +5,26 @@
 #define IN_INTR_PIN 3
 #define IN_DATA_PIN 4
 
-// Pins used to replay coinmech signals.
+// Pins used to replay coinmech signals. These are wired directly in parallel
+// with the coinmech -> control board lines, which idle at 5 V (pulled up by the
+// machine) and are active at 0 V. So we never drive them HIGH: driveLine()
+// either pulls a line to 0 V or lets go of it (see below).
 #define OUT_SEND_PIN 5
 #define OUT_INTR_PIN 6
 #define OUT_DATA_PIN 7
 
 // Pin used by the Raspberry Pi to trigger coin replay.
+// Protocol: each LOW->HIGH edge on this pin means "insert one quarter".
+// The Pi holds the line HIGH for 100 ms, then LOW for 900 ms, per quarter
+// (see RPi/bitvend/src/coin_signal.rs), which leaves plenty of time for
+// fakeQuarter() (~80 ms) to finish before the next edge arrives.
 #define IN_RASPI 10
+
+// Pull to GND by hand (jumper wire) to replay one quarter, for bench testing.
+#define IN_DEBUG 9
+// A new level on IN_DEBUG must hold this long before we believe it. A jumper
+// wire flickers for a few ms when it touches or leaves GND (contact bounce).
+#define DEBUG_DEBOUNCE_MS 50
 
 #define MAX_MESSAGE_LENGTH_MILLIS 500
 
@@ -32,10 +45,43 @@ unsigned int QUARTER4_S[] = { 456,18096,3076,17100,0 };
 unsigned int QUARTER4_I[] = { 0,44292,0 };
 unsigned int QUARTER4_D[] = { 500,6744,5020,3392,6064,6736,5020,3352,33504,1720,3348,1676,5020,3348,0 };
 
+// The recordings above as a table, so we can cycle through them one quarter at a time.
+unsigned int* QUARTERS[4][3] = {
+  { QUARTER1_S, QUARTER1_I, QUARTER1_D },
+  { QUARTER2_S, QUARTER2_I, QUARTER2_D },
+  { QUARTER3_S, QUARTER3_I, QUARTER3_D },
+  { QUARTER4_S, QUARTER4_I, QUARTER4_D },
+};
+// Which recording to replay next.
+int quarter_idx = 0;
+
+// Last level seen on IN_RASPI, used to detect rising edges.
+int last_raspi = LOW;
+
+// IN_DEBUG debouncing: the level we believe, the last raw reading, and when
+// the raw reading last changed.
+int debug_stable = HIGH;
+int debug_raw = HIGH;
+unsigned long debug_changed_ms = 0;
+
 void eraseArrays();
 void printArrays();
 void fakeQuarter(unsigned int s[], unsigned int i[], unsigned int d[]);
-void dollar();
+void quarter();
+
+// Acts like an open-collector transistor on a coinmech line. The original
+// hardware had one per line (Arduino HIGH = pull the line to 0 V), which is why
+// the rest of this code passes "active" as the inverse of the recorded level.
+// - active:   OUTPUT LOW, pulls the line to 0 V.
+// - inactive: INPUT without pull-up, lets the machine hold the line at 5 V.
+void driveLine(int pin, bool active) {
+  if (active) {
+    digitalWrite(pin, LOW);  // Set LOW first, so the pin never outputs HIGH.
+    pinMode(pin, OUTPUT);
+  } else {
+    pinMode(pin, INPUT);
+  }
+}
 
 void(* resetFunc) (void) = 0;
 
@@ -65,11 +111,12 @@ void setup() {
   pinMode(IN_INTR_PIN, INPUT_PULLUP);
   pinMode(IN_DATA_PIN, INPUT_PULLUP);
 
-  pinMode(OUT_SEND_PIN, OUTPUT);
-  pinMode(OUT_INTR_PIN, OUTPUT);
-  pinMode(OUT_DATA_PIN, OUTPUT);
+  driveLine(OUT_SEND_PIN, false);
+  driveLine(OUT_INTR_PIN, false);
+  driveLine(OUT_DATA_PIN, false);
 
   pinMode(IN_RASPI, INPUT);
+  pinMode(IN_DEBUG, INPUT_PULLUP);
 
   Serial.begin(9600);
   Serial.println("Welcome!");
@@ -138,12 +185,12 @@ void fakeQuarter(unsigned int s[], unsigned int i[], unsigned int d[]) {
           // next transition. So the first write will be a rising edge.
           s_state=!s_state;
           next_s = next_s+s[index_s++];
-          digitalWrite(OUT_SEND_PIN,!s_state);
+          driveLine(OUT_SEND_PIN,!s_state);
         }
         else {
-          // Done replaying a signal, set the output low.
+          // Done replaying a signal, let go of the line.
           s_done = true;
-          digitalWrite(OUT_SEND_PIN,LOW);
+          driveLine(OUT_SEND_PIN,false);
         }
       }
 
@@ -154,11 +201,11 @@ void fakeQuarter(unsigned int s[], unsigned int i[], unsigned int d[]) {
       if (i[index_i]>0) {
         i_state=!i_state;
         next_i = next_i+i[index_i++];
-        digitalWrite(OUT_INTR_PIN,!i_state);
+        driveLine(OUT_INTR_PIN,!i_state);
       }
       else {
         i_done = true;
-        digitalWrite(OUT_INTR_PIN,LOW);
+        driveLine(OUT_INTR_PIN,false);
       }
     }
 
@@ -166,11 +213,11 @@ void fakeQuarter(unsigned int s[], unsigned int i[], unsigned int d[]) {
       if (d[index_d]>0) {
         d_state=!d_state;
         next_d = next_d+d[index_d++];
-        digitalWrite(OUT_DATA_PIN,!d_state);
+        driveLine(OUT_DATA_PIN,!d_state);
       }
       else {
         d_done = true;
-        digitalWrite(OUT_DATA_PIN,LOW);
+        driveLine(OUT_DATA_PIN,false);
       }
     }
 
@@ -180,30 +227,25 @@ void fakeQuarter(unsigned int s[], unsigned int i[], unsigned int d[]) {
   Serial.println("Fake Done!");
 }
 
-// Replay four coinmech signals to 'send' a dollar to the machine.
-// TODO: Why is there such a large delay? Is it important to use different quarter signals?
-void dollar() {
-    fakeQuarter(QUARTER1_S,QUARTER1_I,QUARTER1_D);
-    delay(500);
-    fakeQuarter(QUARTER2_S,QUARTER2_I,QUARTER2_D);
-    delay(500);
-    fakeQuarter(QUARTER3_S,QUARTER3_I,QUARTER3_D);
-    delay(500);
-    fakeQuarter(QUARTER4_S,QUARTER4_I,QUARTER4_D);
+// Replay one recorded quarter, cycling through the four recordings.
+void quarter() {
+  fakeQuarter(QUARTERS[quarter_idx][0], QUARTERS[quarter_idx][1], QUARTERS[quarter_idx][2]);
+  quarter_idx = (quarter_idx + 1) % 4;
 }
 
 void loop() {
   unsigned long time = micros();
 
-  // Invert the inputs from the coinmech.
-  // TODO: Why?
+  // Copy the coinmech inputs to the outputs: a line reading 0 V (active) is
+  // pulled to 0 V on the output side too. With pins 2-4 unconnected they read
+  // HIGH (pull-up), so this just keeps the outputs let go.
   int s=digitalRead(IN_SEND_PIN);
   int i=digitalRead(IN_INTR_PIN);
   int d=digitalRead(IN_DATA_PIN);
 
-  digitalWrite(OUT_SEND_PIN, !s);
-  digitalWrite(OUT_INTR_PIN, !i);
-  digitalWrite(OUT_DATA_PIN, !d);
+  driveLine(OUT_SEND_PIN, !s);
+  driveLine(OUT_INTR_PIN, !i);
+  driveLine(OUT_DATA_PIN, !d);
 
   // If we aren't currently recording a signal, and the level on any coinmech
   // wire changed, start recording by setting an initial timestamp.
@@ -215,7 +257,7 @@ void loop() {
     last_d_micros = time;
   }
 
-  // For every level change on each wire, record the time since the start of recording.
+  // For every level change on each wire, record the time since that wire's previous change.
   if (s != last_s) {
     data_s[idx_s++] = (time-last_s_micros);
     last_s_micros = time;
@@ -252,8 +294,24 @@ void loop() {
     eraseArrays();
   }
 
-  // Main functionality; replay coin signals based on a signal from the Raspberry Pi.
-  if (digitalRead(IN_RASPI)==HIGH) {
-    dollar();
+  // Main functionality; replay one quarter for each rising edge from the Raspberry Pi.
+  int raspi = digitalRead(IN_RASPI);
+  if (raspi == HIGH && last_raspi == LOW) {
+    quarter();
+  }
+  last_raspi = raspi;
+
+  // Bench testing; replay one quarter each time IN_DEBUG is pulled to GND.
+  int raw = digitalRead(IN_DEBUG);
+  if (raw != debug_raw) {
+    debug_raw = raw;
+    debug_changed_ms = millis();
+  }
+  if (raw != debug_stable && millis() - debug_changed_ms >= DEBUG_DEBOUNCE_MS) {
+    debug_stable = raw;
+    if (debug_stable == LOW) {
+      Serial.println("Debug: quarter");
+      quarter();
+    }
   }
 }
