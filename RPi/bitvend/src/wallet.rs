@@ -52,17 +52,23 @@ pub async fn sync(wallet: &LexeWallet) -> anyhow::Result<()> {
     Ok(())
 }
 
-impl PaymentSource for LexeWallet {
-    async fn wait_for_change(&self) {
-        let req = WaitForNextPaymentRequest { start_index: None, timeout: Some(Duration::from_secs(60)) };
-        // We don't need the payment itself: the caller re-checks all recent
-        // payments. An error just means nothing happened before the timeout
-        // (or the network is down), so pause briefly to avoid a busy loop.
-        if self.wait_for_next_payment(req).await.is_err() {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
+/// Waits until a payment may have arrived, or a minute has passed.
+///
+/// This is also what keeps the local payments cache up to date: while waiting,
+/// the SDK polls Lexe every few seconds, and if anything changed it syncs *all*
+/// new and updated payments into the cache before returning. (The polls are
+/// cheap; they only wake our Lexe node when there's something to fetch.)
+pub async fn wait_for_payment(wallet: &LexeWallet) {
+    let req = WaitForNextPaymentRequest { start_index: None, timeout: Some(Duration::from_secs(60)) };
+    // We don't need the payment itself: the caller re-checks all recent
+    // payments in the cache. An error just means nothing happened before the
+    // timeout (or the network is down), so pause briefly to avoid a busy loop.
+    if wallet.wait_for_next_payment(req).await.is_err() {
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
+}
 
+impl PaymentSource for LexeWallet {
     async fn recent_completed(&self) -> anyhow::Result<Vec<PaymentInfo>> {
         let recent = self.list_payments(&PaymentFilter::Completed, Some(Order::Desc), Some(RECENT_LIMIT), None)?;
         Ok(recent.payments.iter().map(to_payment_info).collect())

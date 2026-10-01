@@ -18,7 +18,7 @@ use std::{
 };
 
 use bitvend::{
-    coin_signal::{CoinSignal, RecordingPin, Timing},
+    coin_signal::{CoinSignal, Output, Timing},
     price::PriceSource,
     vend::{self, PaymentSource},
     wallet,
@@ -79,18 +79,19 @@ async fn live_payment_becomes_quarters() {
         .unwrap();
 
     // Run the vending loop until the quarters come out.
-    let mut coins = CoinSignal::new(RecordingPin::default(), Timing::ARDUINO);
+    let mut coins = CoinSignal::new(Output::Record(Vec::new()), Timing::ARDUINO);
     let deadline = Instant::now() + Duration::from_secs(180);
-    while coins.pin().quarters_sent() == 0 {
+    while coins.quarters_sent() == 0 {
         assert!(Instant::now() < deadline, "payment never arrived");
-        vend::vend_once(&machine, &mut FixedPrice, &mut coins).await.unwrap();
+        wallet::wait_for_payment(&machine).await;
+        vend::vend_new_payments(&machine, &mut FixedPrice, &mut coins).await.unwrap();
     }
-    assert_eq!(coins.pin().quarters_sent(), EXPECTED_QUARTERS);
+    assert_eq!(coins.quarters_sent(), EXPECTED_QUARTERS);
 
     // The payment is marked in the wallet, and running again sends nothing more.
     let latest = &machine.recent_completed().await.unwrap()[0];
     assert_eq!(latest.sats, SATS as u64);
     assert_eq!(latest.note.as_deref(), Some("bitvend: vended 3 quarters @ $100000/BTC"));
     vend::vend_new_payments(&machine, &mut FixedPrice, &mut coins).await.unwrap();
-    assert_eq!(coins.pin().quarters_sent(), EXPECTED_QUARTERS);
+    assert_eq!(coins.quarters_sent(), EXPECTED_QUARTERS);
 }

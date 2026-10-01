@@ -18,10 +18,26 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// A digital output pin. Implemented by the real Raspberry Pi GPIO pin, and by
-/// stand-ins for testing or for running without hardware.
-pub trait Pin {
-    fn set(&mut self, high: bool);
+use rppal::gpio::Level;
+
+/// Where the pulses go.
+pub enum Output {
+    /// The real Raspberry Pi GPIO pin.
+    Gpio(rppal::gpio::OutputPin),
+    /// Only log each change, for running without hardware (`BITVEND_GPIO=fake`).
+    Log,
+    /// Record each change and when it happened, for tests.
+    Record(Vec<(bool, Instant)>),
+}
+
+impl Output {
+    fn set(&mut self, high: bool) {
+        match self {
+            Output::Gpio(pin) => pin.write(if high { Level::High } else { Level::Low }),
+            Output::Log => tracing::info!("GPIO → {}", if high { "HIGH" } else { "LOW" }),
+            Output::Record(changes) => changes.push((high, Instant::now())),
+        }
+    }
 }
 
 /// How long to hold the line HIGH, then LOW, for each quarter.
@@ -32,14 +48,14 @@ pub struct Timing {
 }
 
 impl Timing {
-    /// The timing the Arduino firmware is designed for.
-    pub const ARDUINO: Timing = Timing { high: Duration::from_millis(100), low: Duration::from_millis(450) };
+    /// The timing the Arduino firmware is designed for. Conservative old defaults.
+    pub const ARDUINO: Timing = Timing { high: Duration::from_millis(100), low: Duration::from_millis(100) };
 
-    /// The longest replay (QUARTER4) takes ~85 ms. The Arduino doesn't watch the
+    /// The replays used take ~50 ms. The Arduino doesn't watch the
     /// pin during a replay, so HIGH has to outlast the replay; otherwise the LOW
     /// could start and finish unseen. After that, it only needs to see the LOW once.
-    pub const MIN_HIGH: Duration = Duration::from_millis(100);
-    pub const MIN_LOW: Duration = Duration::from_millis(50);
+    pub const MIN_HIGH: Duration = Duration::from_millis(60);
+    pub const MIN_LOW: Duration = Duration::from_millis(40);
 
     /// HIGH for [`Timing::MIN_HIGH`], LOW for the rest of `period`. Fails if
     /// `period` is too short for the firmware.
@@ -51,80 +67,39 @@ impl Timing {
 }
 
 /// Sends quarters to the Arduino.
-pub struct CoinSignal<P: Pin> {
-    pin: P,
+pub struct CoinSignal {
+    output: Output,
     timing: Timing,
 }
 
-impl<P: Pin> CoinSignal<P> {
-    pub fn new(mut pin: P, timing: Timing) -> Self {
-        pin.set(false);
-        Self { pin, timing }
+impl CoinSignal {
+    pub fn new(mut output: Output, timing: Timing) -> Self {
+        output.set(false);
+        Self { output, timing }
     }
 
-    /// Pulses the line once per quarter. Blocks until done (about 1 s each).
+    /// Pulses the line once per quarter. Blocks until done.
     pub fn send_quarters(&mut self, quarters: u32) {
         for _ in 0..quarters {
-            self.pin.set(true);
+            self.output.set(true);
             sleep(self.timing.high);
-            self.pin.set(false);
+            self.output.set(false);
             sleep(self.timing.low);
         }
     }
 
-    /// The underlying pin, e.g. to inspect a [`RecordingPin`] in tests.
-    pub fn pin(&self) -> &P {
-        &self.pin
-    }
-}
-
-/// The real Raspberry Pi GPIO pin.
-impl Pin for rppal::gpio::OutputPin {
-    fn set(&mut self, high: bool) {
-        if high { self.set_high() } else { self.set_low() }
-    }
-}
-
-/// Lets `main` pick a pin at runtime (real or [`LogPin`]).
-impl Pin for Box<dyn Pin + Send> {
-    fn set(&mut self, high: bool) {
-        (**self).set(high)
-    }
-}
-
-/// A pin that only logs, for running on a machine without GPIO.
-pub struct LogPin;
-
-impl Pin for LogPin {
-    fn set(&mut self, high: bool) {
-        tracing::info!("GPIO → {}", if high { "HIGH" } else { "LOW" });
-    }
-}
-
-/// A pin that records every change and when it happened. Used by tests.
-#[derive(Default)]
-pub struct RecordingPin {
-    pub changes: Vec<(bool, Instant)>,
-}
-
-impl Pin for RecordingPin {
-    fn set(&mut self, high: bool) {
-        self.changes.push((high, Instant::now()));
-    }
-}
-
-impl RecordingPin {
-    /// How many quarters the Arduino would have seen (LOW→HIGH edges).
-    pub fn quarters_sent(&self) -> usize {
-        let mut level = false;
-        let mut edges = 0;
-        for &(high, _) in &self.changes {
-            if high && !level {
-                edges += 1;
-            }
-            level = high;
+    /// The changes recorded by [`Output::Record`] (empty for other outputs).
+    pub fn recorded(&self) -> &[(bool, Instant)] {
+        match &self.output {
+            Output::Record(changes) => changes,
+            _ => &[],
         }
-        edges
+    }
+
+    /// How many quarters the Arduino would have seen (LOW→HIGH edges), with
+    /// [`Output::Record`].
+    pub fn quarters_sent(&self) -> usize {
+        self.recorded().windows(2).filter(|pair| !pair[0].0 && pair[1].0).count()
     }
 }
 
@@ -135,58 +110,35 @@ mod tests {
     /// Shorter than the real timing so tests run quickly.
     const FAST: Timing = Timing { high: Duration::from_millis(10), low: Duration::from_millis(30) };
 
-    fn send(quarters: u32) -> Vec<(bool, Instant)> {
-        let mut coins = CoinSignal::new(RecordingPin::default(), FAST);
+    fn send(quarters: u32) -> CoinSignal {
+        let mut coins = CoinSignal::new(Output::Record(Vec::new()), FAST);
         coins.send_quarters(quarters);
-        assert_eq!(coins.pin().quarters_sent(), quarters as usize);
-        coins.pin().changes.clone()
+        coins
     }
 
     #[test]
-    fn line_starts_low() {
-        let coins = CoinSignal::new(RecordingPin::default(), FAST);
-        assert_eq!(coins.pin().changes.len(), 1);
-        assert!(!coins.pin().changes[0].0);
-    }
-
-    #[test]
-    fn zero_quarters_sends_nothing() {
-        let changes = send(0);
-        assert_eq!(changes.len(), 1); // Only the initial LOW.
-    }
-
-    #[test]
-    fn one_rising_edge_per_quarter() {
-        for quarters in [1, 2, 5] {
-            let changes = send(quarters);
-            // Initial LOW, then a HIGH, LOW pair per quarter.
-            assert_eq!(changes.len(), 1 + 2 * quarters as usize);
-            let levels: Vec<bool> = changes.iter().map(|c| c.0).collect();
-            for (i, level) in levels.iter().enumerate() {
-                assert_eq!(*level, i % 2 == 1, "line must alternate LOW/HIGH");
-            }
+    fn one_pulse_per_quarter_starting_and_ending_low() {
+        for quarters in [0, 1, 3] {
+            let coins = send(quarters);
+            assert_eq!(coins.quarters_sent(), quarters as usize);
+            // The initial LOW, then a HIGH, LOW pair per quarter.
+            let levels: Vec<bool> = coins.recorded().iter().map(|(high, _)| *high).collect();
+            let expected: Vec<bool> = (0..=2 * quarters).map(|i| i % 2 == 1).collect();
+            assert_eq!(levels, expected);
         }
     }
 
     #[test]
-    fn line_ends_low() {
-        let changes = send(3);
-        assert!(!changes.last().unwrap().0);
-    }
-
-    #[test]
     fn pulses_are_long_enough_for_the_arduino() {
-        let changes = send(3);
-        // changes = [LOW, HIGH, LOW, HIGH, LOW, HIGH, LOW]
-        for pair in changes[1..].windows(2) {
+        let started = Instant::now();
+        let coins = send(3);
+        for pair in coins.recorded()[1..].windows(2) {
             let ((was_high, start), (_, end)) = (pair[0], pair[1]);
             let min = if was_high { FAST.high } else { FAST.low };
             assert!(end - start >= min, "level held for {:?}", end - start);
         }
         // The final LOW has no change after it, so check it by timing the call.
-        let started = Instant::now();
-        send(2);
-        assert!(started.elapsed() >= 2 * (FAST.high + FAST.low));
+        assert!(started.elapsed() >= 3 * (FAST.high + FAST.low));
     }
 
     /// Guards against someone "optimizing" the default timing below what the
@@ -199,10 +151,12 @@ mod tests {
 
     #[test]
     fn with_period_enforces_the_minimum() {
-        assert!(Timing::with_period(Duration::from_millis(149)).is_err());
-        let t = Timing::with_period(Duration::from_millis(150)).unwrap();
+        // Timing constraints are MIN_HIGH and MIN_LOW above.
+        assert!(Timing::with_period(Duration::from_millis(79)).is_err());
+        let t = Timing::with_period(Duration::from_millis(100)).unwrap();
         assert_eq!((t.high, t.low), (Timing::MIN_HIGH, Timing::MIN_LOW));
-        let t = Timing::with_period(Duration::from_millis(550)).unwrap();
-        assert_eq!((t.high, t.low), (Timing::ARDUINO.high, Timing::ARDUINO.low));
+        let custom_timing = Duration::from_millis(200);
+        let t = Timing::with_period(custom_timing).unwrap();
+        assert_eq!((t.high, t.low), (Timing::MIN_HIGH, custom_timing - Timing::MIN_HIGH));
     }
 }

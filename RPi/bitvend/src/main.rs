@@ -13,7 +13,7 @@ use std::{env, path::PathBuf, time::Duration};
 
 use anyhow::Context;
 use bitvend::{
-    coin_signal::{CoinSignal, LogPin, Pin, Timing},
+    coin_signal::{CoinSignal, Output, Timing},
     price::PriceFeed,
     vend, wallet,
 };
@@ -35,13 +35,14 @@ async fn main() -> anyhow::Result<()> {
 
     let timing = quarter_timing()?;
     info!("Sending one quarter every {:?}", timing.high + timing.low);
-    let mut coins = CoinSignal::new(open_pin()?, timing);
+    let mut coins = CoinSignal::new(open_output()?, timing);
     let mut prices = PriceFeed::default();
 
     wallet::sync(&wallet).await?;
     info!("Ready for payments on {network}");
     loop {
-        if let Err(e) = vend::vend_once(&wallet, &mut prices, &mut coins).await {
+        wallet::wait_for_payment(&wallet).await;
+        if let Err(e) = vend::vend_new_payments(&wallet, &mut prices, &mut coins).await {
             warn!("{e:#}");
             tokio::time::sleep(Duration::from_secs(5)).await;
         }
@@ -65,9 +66,9 @@ fn quarter_timing() -> anyhow::Result<Timing> {
     Timing::with_period(Duration::from_millis(ms))
 }
 
-fn open_pin() -> anyhow::Result<Box<dyn Pin + Send>> {
+fn open_output() -> anyhow::Result<Output> {
     if env::var("BITVEND_GPIO").as_deref() == Ok("fake") {
-        return Ok(Box::new(LogPin));
+        return Ok(Output::Log);
     }
     let number = match env::var("BITVEND_GPIO_PIN") {
         Ok(n) => n.parse().with_context(|| format!("BITVEND_GPIO_PIN={n:?} is not a GPIO number"))?,
@@ -75,5 +76,5 @@ fn open_pin() -> anyhow::Result<Box<dyn Pin + Send>> {
     };
     info!("Signalling the Arduino on BCM GPIO {number}");
     let pin = rppal::gpio::Gpio::new()?.get(number).with_context(|| format!("Can't open BCM GPIO {number}"))?;
-    Ok(Box::new(pin.into_output_low()))
+    Ok(Output::Gpio(pin.into_output_low()))
 }

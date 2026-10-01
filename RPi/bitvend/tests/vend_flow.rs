@@ -7,7 +7,7 @@ use std::{
 };
 
 use bitvend::{
-    coin_signal::{CoinSignal, RecordingPin, Timing},
+    coin_signal::{CoinSignal, Output, Timing},
     price::PriceSource,
     vend::{self, PaymentInfo, PaymentSource},
 };
@@ -46,8 +46,6 @@ impl FakeWallet {
 }
 
 impl PaymentSource for FakeWallet {
-    async fn wait_for_change(&self) {}
-
     async fn recent_completed(&self) -> anyhow::Result<Vec<PaymentInfo>> {
         Ok(self.payments.borrow().clone())
     }
@@ -71,7 +69,7 @@ impl PriceSource for FixedPrice {
 struct Machine {
     wallet: FakeWallet,
     prices: FixedPrice,
-    coins: CoinSignal<RecordingPin>,
+    coins: CoinSignal,
 }
 
 impl Machine {
@@ -79,16 +77,16 @@ impl Machine {
         Self {
             wallet: FakeWallet::default(),
             prices: FixedPrice(Some(PRICE)),
-            coins: CoinSignal::new(RecordingPin::default(), FAST),
+            coins: CoinSignal::new(Output::Record(Vec::new()), FAST),
         }
     }
 
     async fn run(&mut self) -> anyhow::Result<()> {
-        vend::vend_once(&self.wallet, &mut self.prices, &mut self.coins).await
+        vend::vend_new_payments(&self.wallet, &mut self.prices, &mut self.coins).await
     }
 
     fn quarters_sent(&self) -> usize {
-        self.coins.pin().quarters_sent()
+        self.coins.quarters_sent()
     }
 }
 

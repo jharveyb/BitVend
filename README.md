@@ -3,7 +3,7 @@
 Most recent code for each system is:
 
 Arduino - Arduino/platformio/src/vend_hack.cpp
-RPi - RPi/bitvend/ (Rust service; see RPi/bitvend/SETUP.md). The old Python 2 scripts are in RPi/legacy/.
+RPi - RPi/bitvend/ (Rust service; RPi/bitvend/README.md explains the code, RPi/bitvend/SETUP.md covers setup). The old Python 2 scripts are in RPi/legacy/.
 
 Docs for the vending machine itself are all in docs/ - CONLUX for the billmech, tcr6xxx for the coinmech,
 and the other two for the rest of the machine, including the control board.

@@ -1,4 +1,4 @@
-//! The main loop: find new payments, work out their value, send quarters.
+//! Deciding what to vend: find unhandled payments, work out their value, send quarters.
 //!
 //! We don't keep any state files of our own. Instead, after handling a payment
 //! we attach a private note to it in the Lexe wallet (e.g. "bitvend: vended 4
@@ -9,11 +9,7 @@ use std::time::{Duration, SystemTime};
 
 use tracing::{info, warn};
 
-use crate::{
-    coin_signal::{CoinSignal, Pin},
-    price::PriceSource,
-    quarters::quarters_for,
-};
+use crate::{coin_signal::CoinSignal, price::PriceSource, quarters::quarters_for};
 
 /// Every note we write starts with this, so we can recognize handled payments.
 pub const NOTE_PREFIX: &str = "bitvend:";
@@ -42,8 +38,6 @@ pub struct PaymentInfo {
 /// Where payments come from: the Lexe wallet (see `wallet.rs`), or a fake in
 /// tests.
 pub trait PaymentSource {
-    /// Waits until a payment may have arrived, or about a minute has passed.
-    async fn wait_for_change(&self);
     /// Recently completed payments, newest first.
     async fn recent_completed(&self) -> anyhow::Result<Vec<PaymentInfo>>;
     /// Attaches our note to a payment.
@@ -57,22 +51,12 @@ pub fn creditable(payment: &PaymentInfo, now: SystemTime) -> bool {
     payment.inbound && payment.lightning && !handled && age < MAX_AGE
 }
 
-/// Waits for payment activity, then vends any new payments.
-/// `main` calls this over and over.
-pub async fn vend_once(
-    payments: &impl PaymentSource,
-    prices: &mut impl PriceSource,
-    coins: &mut CoinSignal<impl Pin>,
-) -> anyhow::Result<()> {
-    payments.wait_for_change().await;
-    vend_new_payments(payments, prices, coins).await
-}
-
-/// Vends every payment we haven't handled yet, oldest first.
+/// Vends every payment we haven't handled yet, oldest first. `main` calls this
+/// each time the wallet sees payment activity.
 pub async fn vend_new_payments(
     payments: &impl PaymentSource,
     prices: &mut impl PriceSource,
-    coins: &mut CoinSignal<impl Pin>,
+    coins: &mut CoinSignal,
 ) -> anyhow::Result<()> {
     let now = SystemTime::now();
     let mut new_payments: Vec<PaymentInfo> =
