@@ -7,7 +7,7 @@
 //! - `LEXE_DATA_DIR`: where to cache payment history (default `~/.lexe`).
 //! - `BITVEND_GPIO=fake`: log pulses instead of using GPIO (for testing).
 //! - `BITVEND_GPIO_PIN`: BCM GPIO number wired to the Arduino (default 18).
-//! - `BITVEND_QUARTER_PERIOD_MS`: time per quarter pulse (default 550, min 150).
+//! - `BITVEND_QUARTER_PERIOD_MS`: time per quarter pulse (default 200, min 100).
 
 use std::{env, path::PathBuf, time::Duration};
 

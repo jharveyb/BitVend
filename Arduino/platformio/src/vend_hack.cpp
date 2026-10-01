@@ -15,9 +15,10 @@
 
 // Pin used by the Raspberry Pi to trigger coin replay.
 // Protocol: each LOW->HIGH edge on this pin means "insert one quarter".
-// The Pi holds the line HIGH for 100 ms, then LOW for 900 ms, per quarter
-// (see RPi/bitvend/src/coin_signal.rs), which leaves plenty of time for
-// fakeQuarter() (~80 ms) to finish before the next edge arrives.
+// By default the Pi holds the line HIGH for 100 ms, then LOW for 100 ms, per
+// quarter; the minimum is 60 ms HIGH / 40 ms LOW (see Timing in
+// RPi/bitvend/src/coin_signal.rs). The replayed recordings (Q1-Q3) take up to
+// ~48 ms, so fakeQuarter() finishes while the line is still HIGH.
 #define IN_RASPI 10
 
 // Pull to GND by hand (jumper wire) to replay one quarter, for bench testing.
@@ -170,14 +171,16 @@ void fakeQuarter(unsigned int s[], unsigned int i[], unsigned int d[]) {
 
   unsigned long start = micros();
 
-  unsigned long next_s = start+s[index_s++];
-  unsigned long next_i = start+i[index_i++];
-  unsigned long next_d = start+d[index_d++];
+  // Times are kept relative to start: micros() wraps around every ~71 min, and
+  // comparing elapsed times (unsigned subtraction) still works across the wrap.
+  unsigned long next_s = s[index_s++];
+  unsigned long next_i = i[index_i++];
+  unsigned long next_d = d[index_d++];
   unsigned long current;
 
   // Replay the recorded coinmech signals, until the end of the longest signal.
   while (!s_done || !i_done || !d_done) {
-    current = micros();
+    current = micros() - start;
       if (next_s<=current) {
         // >0 check implies that the 0 values in the recorded signals are special?
         if (s[index_s]>0) {
@@ -223,7 +226,7 @@ void fakeQuarter(unsigned int s[], unsigned int i[], unsigned int d[]) {
 
   }
   Serial.print("Took (micros):");
-  Serial.println(current-start);
+  Serial.println(current);
   Serial.println("Fake Done!");
 }
 
