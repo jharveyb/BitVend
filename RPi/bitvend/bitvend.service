@@ -11,5 +11,15 @@ ExecStart=/usr/local/bin/bitvend
 Restart=always
 RestartSec=10
 
+# bitvend tells systemd when it's ready, then "still alive" after every loop.
+# If that stops, systemd restarts it. One loop is at most ~1 minute of waiting
+# plus the time to pulse out a payment's quarters (BITVEND_QUARTER_PERIOD_MS
+# each), so WatchdogSec must exceed the largest payment's pulse time:
+# 10 minutes at 200 ms per quarter covers ~$700. Raise it if you slow pulses down.
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=5min
+WatchdogSec=10min
+
 [Install]
 WantedBy=multi-user.target

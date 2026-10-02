@@ -42,6 +42,7 @@ Read the files in this order:
 | `src/quarters.rs` | Sats + BTC price → number of quarters. A pure function, so it's the easiest place to start. |
 | `src/price.rs` | Fetches the BTC/USD price from Coinbase, falling back to Kraken, and caches it. |
 | `src/coin_signal.rs` | Pulses the GPIO pin. It also holds the pulse timing limits the Arduino firmware needs. |
+| `src/health.rs` | Reports health: tells systemd "still alive" after every loop (watchdog), and pings an optional monitoring URL. |
 | `src/wallet.rs` | The adapter between `vend.rs` and the Lexe SDK. This is the only file that knows Lexe's types. |
 | `src/lib.rs` | Lists the modules, so the tests in `tests/` can use them. |
 | `tests/vend_flow.rs` | End-to-end tests of the vending logic with a fake wallet, a fixed price and a recording pin. No network needed. |
@@ -97,6 +98,10 @@ or at least once a minute:
 - **Floating-point dollars are fine here.** `f64` errors are around 10⁻¹⁵
   dollars, far below the 2¢ minimum slack, so they can't change a result
   unless a payment lands within a billionth of a cent of a slack boundary.
+- **Failures are reported, not just logged.** Each loop's result goes to
+  `health.rs`. If the process hangs, systemd's watchdog restarts it. If Lexe
+  or the price feed fails, the heartbeat URL gets a `/fail` ping with the
+  error, so an operator hears about it before customers do.
 - **The Pi can't spend.** It uses Lexe *client credentials* that can only
   receive, read payments and write notes. The seed phrase stays on an admin
   machine (see SETUP.md).
@@ -143,6 +148,7 @@ These are environment variables, set in `/etc/bitvend.env` on the Pi. See
 - `BITVEND_GPIO=fake`
 - `BITVEND_GPIO_PIN` (a BCM number; default 18, which is physical pin 12)
 - `BITVEND_QUARTER_PERIOD_MS`
+- `BITVEND_HEALTHCHECK_URL` (optional heartbeat URL, e.g. healthchecks.io)
 
 ## Rust notes for newcomers
 

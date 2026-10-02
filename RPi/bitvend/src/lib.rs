@@ -7,6 +7,7 @@
 //! - [`quarters`]: converts a payment in sats into a number of quarters.
 //! - [`coin_signal`]: tells the Arduino to insert quarters, via one GPIO wire.
 //! - [`vend`]: decides which payments to vend, and how many quarters each.
+//! - [`health`]: tells systemd and an optional monitoring URL that we're working.
 //!
 //! `main.rs` wires them together: wait for a payment, then vend any new ones.
 
@@ -15,6 +16,7 @@
 #![allow(async_fn_in_trait)]
 
 pub mod coin_signal;
+pub mod health;
 pub mod price;
 pub mod quarters;
 pub mod vend;

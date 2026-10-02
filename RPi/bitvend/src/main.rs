@@ -7,6 +7,7 @@
 //! - `LEXE_DATA_DIR`: where to cache payment history (default `~/.lexe`).
 //! - `BITVEND_GPIO=fake`: log pulses instead of using GPIO (for testing).
 //! - `BITVEND_GPIO_PIN`: BCM GPIO number wired to the Arduino (default 18).
+//! - `BITVEND_HEALTHCHECK_URL`: optional heartbeat URL, e.g. from healthchecks.io.
 //! - `BITVEND_QUARTER_PERIOD_MS`: time per quarter pulse (default 200, min 100).
 
 use std::{env, path::PathBuf, time::Duration};
@@ -14,6 +15,7 @@ use std::{env, path::PathBuf, time::Duration};
 use anyhow::Context;
 use bitvend::{
     coin_signal::{CoinSignal, Output, Timing},
+    health::Health,
     price::PriceFeed,
     vend, wallet,
 };
@@ -38,7 +40,10 @@ async fn main() -> anyhow::Result<()> {
     let mut coins = CoinSignal::new(open_output()?, timing);
     let mut prices = PriceFeed::default();
 
+    let mut health = Health::new(env::var("BITVEND_HEALTHCHECK_URL").ok());
+
     wallet::sync(&wallet).await?;
+    health.started();
     info!("Ready for payments on {network}");
     loop {
         let result = async {
@@ -46,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
             vend::vend_new_payments(&wallet, &mut prices, &mut coins).await
         }
         .await;
+        health.report(&result).await;
         if let Err(e) = result {
             warn!("{e:#}");
             tokio::time::sleep(Duration::from_secs(5)).await;

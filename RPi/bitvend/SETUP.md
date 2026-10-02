@@ -80,7 +80,26 @@ sudo systemctl enable --now bitvend
 journalctl -u bitvend -f                    # logs the payment address, then each payment
 ```
 
-## 4. Maintenance
+## 4. Monitoring
+
+If `bitvend` stops working, customers can still pay but get nothing, so set up
+an alert:
+
+1. Create a free check at https://healthchecks.io. Use period 5 minutes and
+   grace 5 minutes, and add your email or phone.
+2. Put its ping URL in `/etc/bitvend.env` as `BITVEND_HEALTHCHECK_URL`, then run
+   `sudo systemctl restart bitvend`.
+
+`bitvend` pings it about once a minute while healthy. When something fails
+(e.g. Lexe or the price feed is unreachable) it pings `<url>/fail` with the
+error, and healthchecks.io alerts you. It also alerts you if pings stop
+entirely: the Pi is off, offline, or crash-looping.
+
+Separately, systemd restarts `bitvend` if it crashes, or if it hangs and stops
+checking in for 10 minutes (`WatchdogSec` in `bitvend.service`). Check with
+`systemctl status bitvend` and `journalctl -u bitvend`.
+
+## 5. Maintenance
 
 - **Keep the wallet up to date.** When Lexe releases a new node version, run
   `lexe provision` on the admin machine. The Pi's credentials can't do this.
