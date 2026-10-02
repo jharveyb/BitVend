@@ -97,7 +97,7 @@ To target a specific port: `pio run -t upload --upload-port /dev/ttyUSB0`.
 
 Recording is off by default. The `ATmega328P_record` environment builds with
 `-D RECORD_SIGNALS`, which also records the coinmech signals on pins 2–4 and
-prints them over Serial as C arrays, ready to paste into `vend_hack.cpp`:
+prints them over Serial as arrays ready to paste into `lib/vend/vend.cpp`:
 
 ```sh
 pio run -e ATmega328P_record -t upload
@@ -105,12 +105,42 @@ pio run -e ATmega328P_record -t upload
 
 Its startup message is `Welcome! (recording signals)`. Both builds pass pins
 2–4 through to pins 5–7; with nothing connected to pins 2–4, that just keeps
-the lines released. `pio run -e ATmega328P -e ATmega328P_record` checks that
-both builds compile.
+the lines released. The recording logic itself (`Recorder` in `lib/vend`) is
+covered by the native tests in either case.
 
 ## Source
 
-- [src/vend_hack.cpp](src/vend_hack.cpp) — full firmware. Ported from
-  [../vend_hack.ino](../vend_hack.ino) with `boolean` → `bool` and explicit
-  forward declarations. Lives as a `.cpp` (not `.ino`) so VSCode's C/C++
-  extension treats it as a first-class translation unit.
+- [lib/vend/vend.h](lib/vend/vend.h), [lib/vend/vend.cpp](lib/vend/vend.cpp) —
+  the coin replay logic: the recordings, replay timing, pass-through, debounce,
+  Pi edge detection and the recorder. It doesn't use `Arduino.h` (except
+  `driveLine()`), so it can be unit tested on a PC. `vend.h` also holds the Pi's
+  timing limits (`PI_MIN_HIGH_MS`, `PI_MIN_LOW_MS`), which must match
+  `Timing::MIN_HIGH` / `MIN_LOW` in `RPi/bitvend/src/coin_signal.rs`.
+- [src/vend_hack.cpp](src/vend_hack.cpp) — `setup()`/`loop()`: connects that
+  logic to the pins and Serial. Originally ported from
+  [../vend_hack.ino](../vend_hack.ino).
+
+## Tests
+
+```sh
+pio test -e native                    # logic tests on this computer
+pio test -e sim --without-uploading   # driveLine() on a simulated ATmega328P (Linux/macOS)
+```
+
+- `test/test_native/` checks the recordings are well formed, and that replays
+  happen at the recorded times, also across the `micros()` wraparound (every
+  ~71 min). Every replayed recording must fit inside the Pi's shortest pulse,
+  and no quarters may be lost at the Pi's fastest timing. It also checks the
+  debounce (a bouncy release must not add a quarter), that idle inputs leave
+  the lines released, and that idle inputs at boot don't start a recording.
+- `test/test_sim/` runs `driveLine()` with the real Arduino core in simavr and
+  checks the pin registers: a released line is an input without pull-up, and
+  an active line is an output driving LOW. Pins 5–7 must never be a normal
+  output, or the coin mech stops working.
+- `cargo test` in `RPi/bitvend/` checks that `PI_MIN_HIGH_MS` / `PI_MIN_LOW_MS`
+  in `vend.h` match the Pi's `Timing::MIN_HIGH` / `MIN_LOW`.
+
+`pio run` and `pio run -t upload` only build the default (non-recording)
+firmware (`default_envs`). `pio run -e ATmega328P -e ATmega328P_record` checks
+that both builds compile. `pio test` on the board environments runs nothing, so
+tests are never uploaded to the machine's board.

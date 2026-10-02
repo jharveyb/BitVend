@@ -6,7 +6,13 @@
                 "${workspaceFolder}/**"
             ],
             "defines": [],
-            "compilerPath": "/usr/lib/ccache/clang"
+            // No AVR mode exists; any x64 mode (e.g. a user default) makes cpptools
+            // query avr-g++ with -m64, which fails and loses the avr/ headers.
+            "intelliSenseMode": "gcc-arm",
+            "compilerPath": "/usr/lib/ccache/clang",
+            // Real avr-gcc flags for the firmware (Arduino.h, lib/vend, ...).
+            // Generate with: cd Arduino/platformio && pio run -t compiledb
+            "compileCommands": "${workspaceFolder}/Arduino/platformio/compile_commands.json"
         }
     ],
     "version": 4

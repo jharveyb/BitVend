@@ -149,6 +149,23 @@ mod tests {
         assert!(Timing::ARDUINO.low >= Timing::MIN_LOW);
     }
 
+    /// The firmware keeps its own copy of these limits (PI_MIN_HIGH_MS and
+    /// PI_MIN_LOW_MS in vend.h), and its tests check the replays fit inside
+    /// them. Both copies must agree.
+    #[test]
+    fn firmware_agrees_on_timing_limits() {
+        let header = include_str!("../../../Arduino/platformio/lib/vend/vend.h");
+        let define = |name: &str| -> Duration {
+            let ms = header
+                .lines()
+                .find_map(|line| line.strip_prefix("#define ")?.strip_prefix(name)?.trim().parse().ok())
+                .unwrap_or_else(|| panic!("no `#define {name} <ms>` in vend.h"));
+            Duration::from_millis(ms)
+        };
+        assert_eq!(define("PI_MIN_HIGH_MS"), Timing::MIN_HIGH);
+        assert_eq!(define("PI_MIN_LOW_MS"), Timing::MIN_LOW);
+    }
+
     #[test]
     fn with_period_enforces_the_minimum() {
         // Timing constraints are MIN_HIGH and MIN_LOW above.
