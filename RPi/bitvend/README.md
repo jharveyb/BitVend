@@ -23,8 +23,10 @@ customer's wallet ──Lightning──▶ Lexe (hosted wallet) ◀──polls�
    Rust SDK (the `lexe` crate).
 2. **Price.** `bitvend` notices the payment and converts it to USD at the
    current BTC price.
-3. **Rounding.** The value is rounded **up** to whole quarters. Payments under
-   25¢ get nothing.
+3. **Rounding.** The value is rounded down to whole quarters, *unless* it's
+   just short of the next quarter (within 2% of the payment, between 2¢ and
+   24¢), in which case it's rounded up. So 98¢ gets $1.00, but 26¢ gets one quarter.
+   See `quarters.rs` for why.
 4. **Signal.** For each quarter, `bitvend` pulses a GPIO pin wired to the
    Arduino. On each pulse, the Arduino replays a recorded "a quarter was
    inserted" signal into the vending machine (see `Arduino/platformio/`).
@@ -55,8 +57,9 @@ or at least once a minute:
 
 1. List recent completed payments from Lexe's local cache. The SDK keeps the
    cache in sync: `wallet::wait_for_payment` polls Lexe every few seconds and
-   syncs every new or updated payment before returning. Writing a note also
-   re-syncs the cache. `wallet::sync` only does the first, full sync at
+   syncs every new or updated payment, then does one explicit
+   `sync_payments`, which fails loudly if Lexe is unreachable. Writing a note
+   also re-syncs the cache. `wallet::sync` only does the first, full sync at
    startup.
 2. Keep the ones that are `creditable`: inbound, over Lightning, no `bitvend:`
    note yet, and completed within the last 24 hours.
@@ -81,12 +84,19 @@ or at least once a minute:
   off) are left for the operator rather than vended unexpectedly.
 - **Customers are credited what they sent.** Lexe keeps a 0.5% fee from each
   received payment, so `wallet.rs` credits `amount + fees`. Otherwise a payment
-  of exactly 25¢ would arrive as 24.875¢ and get nothing.
+  of exactly $1.00 would arrive as 99.5¢, and the fee would cost the customer
+  a quarter.
 - **Price outages delay payments rather than losing them.** If no price is
   available (the last good one is reused for up to an hour), the payment stays
   unmarked and is retried on the next loop.
-- **Integer math for money.** `quarters_for` compares integers, so values on a
-  quarter boundary don't round the wrong way.
+- **Round up only when close.** Always rounding up would let someone pay 25.1¢
+  over and over and get 50¢ each time. The slack (1% of the payment, between
+  2¢ and 24¢) covers the customer's wallet using a slightly different BTC
+  price, while capping what anyone can gain. The rule's guarantees are checked
+  by property tests (proptest) in `quarters.rs`.
+- **Floating-point dollars are fine here.** `f64` errors are around 10⁻¹⁵
+  dollars, far below the 2¢ minimum slack, so they can't change a result
+  unless a payment lands within a billionth of a cent of a slack boundary.
 - **The Pi can't spend.** It uses Lexe *client credentials* that can only
   receive, read payments and write notes. The seed phrase stays on an admin
   machine (see SETUP.md).

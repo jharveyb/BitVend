@@ -69,7 +69,7 @@ pub async fn vend_new_payments(
         let price = prices.usd_per_btc().await?;
         let quarters = quarters_for(payment.sats, price);
         let note = if quarters == 0 {
-            format!("{NOTE_PREFIX} skipped, worth under 25c @ ${price:.0}/BTC")
+            format!("{NOTE_PREFIX} skipped, worth under a quarter @ ${price:.0}/BTC")
         } else {
             format!("{NOTE_PREFIX} vended {quarters} quarters @ ${price:.0}/BTC")
         };

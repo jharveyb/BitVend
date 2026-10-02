@@ -9,8 +9,9 @@ use tracing::warn;
 const COINBASE_URL: &str = "https://api.coinbase.com/v2/prices/BTC-USD/spot";
 const KRAKEN_URL: &str = "https://api.kraken.com/0/public/Ticker?pair=XBTUSD";
 
-/// Reuse a price for this long before fetching a new one.
-const REFRESH_AFTER: Duration = Duration::from_secs(5 * 60);
+/// Reuse a price for this long before fetching a new one. Kept short so our
+/// price stays close to what the customer's wallet showed them.
+const REFRESH_AFTER: Duration = Duration::from_secs(120);
 /// If every price source is down, keep using the last price for this long.
 const GIVE_UP_AFTER: Duration = Duration::from_secs(60 * 60);
 

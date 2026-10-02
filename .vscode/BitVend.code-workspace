@@ -5,6 +5,12 @@
 		}
 	],
 	"settings": {
-		"rust-analyzer.linkedProjects": ["RPi/bitvend/Cargo.toml"]
+		"rust-analyzer.linkedProjects": ["RPi/bitvend/Cargo.toml"],
+		// The test explorer always runs cargo with RUSTC_BOOTSTRAP=1, and some
+		// build scripts rerun when it changes. Set it for every rust-analyzer
+		// cargo run so they agree, and keep them in their own target dir so
+		// terminal builds (without it) in target/debug aren't invalidated.
+		"rust-analyzer.cargo.targetDir": true,
+		"rust-analyzer.cargo.extraEnv": { "RUSTC_BOOTSTRAP": "1" }
 	}
 }

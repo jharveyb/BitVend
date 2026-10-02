@@ -31,7 +31,7 @@ These recordings are stored at the top of `vend_hack.cpp`.
 The responsibilities of each component are:
 
 - Raspberry Pi: Receive Lightning payments to a static address (Lexe wallet), convert
-        each payment to USD, round up to the next quarter, and pulse a GPIO pin once
+        each payment to USD, round to whole quarters, and pulse a GPIO pin once
         per quarter.
 - Arduino: For each pulse from the Pi, grant one quarter of credit on the vending
         machine by replaying a coin signal recording.
@@ -60,7 +60,7 @@ small Rust service built on the [Lexe](https://docs.lexe.tech) wallet SDK, which
 
 1. Waits for incoming Lightning payments.
 2. Converts each one to USD at the current BTC price (Coinbase, falling back to Kraken).
-3. Rounds up to the next quarter. Payments under 25¢ are ignored.
+3. Rounds to whole quarters: down, or up if within 2% (2¢–24¢) of the next quarter.
 4. Pulses Pi physical pin 12 (BCM 18) once per quarter; this pin is wired to Arduino pin 10.
 
 The Pi holds only receive-only Lexe credentials; the wallet's seed phrase stays on an

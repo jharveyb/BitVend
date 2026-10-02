@@ -5,7 +5,7 @@
 
 use std::{path::PathBuf, time::Duration, time::UNIX_EPOCH};
 
-use anyhow::bail;
+use anyhow::{Context, bail};
 use lexe::{
     config::WalletEnvConfig,
     types::{
@@ -52,20 +52,20 @@ pub async fn sync(wallet: &LexeWallet) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Waits until a payment may have arrived, or a minute has passed.
+/// Waits until a payment may have arrived (or a minute has passed), then
+/// makes sure the local payments cache is up to date.
 ///
-/// This is also what keeps the local payments cache up to date: while waiting,
-/// the SDK polls Lexe every few seconds, and if anything changed it syncs *all*
-/// new and updated payments into the cache before returning. (The polls are
-/// cheap; they only wake our Lexe node when there's something to fetch.)
-pub async fn wait_for_payment(wallet: &LexeWallet) {
+/// While waiting, the SDK polls Lexe every few seconds and syncs new payments
+/// into the cache. The final `sync_payments` makes that explicit, and returns
+/// an error if Lexe can't be reached, so the health check notices. (Syncs are
+/// cheap: they only wake our Lexe node when there's something to fetch.)
+pub async fn wait_for_payment(wallet: &LexeWallet) -> anyhow::Result<()> {
     let req = WaitForNextPaymentRequest { start_index: None, timeout: Some(Duration::from_secs(60)) };
-    // We don't need the payment itself: the caller re-checks all recent
-    // payments in the cache. An error just means nothing happened before the
-    // timeout (or the network is down), so pause briefly to avoid a busy loop.
-    if wallet.wait_for_next_payment(req).await.is_err() {
-        tokio::time::sleep(Duration::from_millis(500)).await;
-    }
+    // We don't need the payment itself, since the caller re-checks all recent
+    // payments, and an error here usually just means the timeout passed.
+    let _ = wallet.wait_for_next_payment(req).await;
+    wallet.sync_payments().await.context("Can't reach Lexe")?;
+    Ok(())
 }
 
 impl PaymentSource for LexeWallet {
@@ -86,9 +86,10 @@ fn to_payment_info(payment: &Payment) -> PaymentInfo {
         inbound: payment.direction == PaymentDirection::Inbound,
         lightning: matches!(payment.rail, PaymentRail::Invoice | PaymentRail::Offer | PaymentRail::Spontaneous),
         // Lexe deducts its fee (currently 0.5%) from what we receive. Credit
-        // the customer for everything they sent, fee included, so e.g. paying
-        // exactly 25¢ still gets a quarter.
-        sats: payment.amount.map(|amount| amount.sats_u64()).unwrap_or(0) + payment.fees.sats_u64(),
+        // the customer for everything they sent, fee included, so the fee
+        // never costs them a quarter. Add before converting to whole sats:
+        // both can have fractions of a sat (e.g. 736.3 + 3.7).
+        sats: payment.amount.map(|amount| (amount + payment.fees).sats_u64()).unwrap_or(0),
         finalized_at: payment.finalized_at.map(|t| t.to_system_time()).unwrap_or(UNIX_EPOCH),
         note: payment.personal_note.clone(),
     }

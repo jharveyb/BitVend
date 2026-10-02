@@ -41,8 +41,12 @@ async fn main() -> anyhow::Result<()> {
     wallet::sync(&wallet).await?;
     info!("Ready for payments on {network}");
     loop {
-        wallet::wait_for_payment(&wallet).await;
-        if let Err(e) = vend::vend_new_payments(&wallet, &mut prices, &mut coins).await {
+        let result = async {
+            wallet::wait_for_payment(&wallet).await?;
+            vend::vend_new_payments(&wallet, &mut prices, &mut coins).await
+        }
+        .await;
+        if let Err(e) = result {
             warn!("{e:#}");
             tokio::time::sleep(Duration::from_secs(5)).await;
         }

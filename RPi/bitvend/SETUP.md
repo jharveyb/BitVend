@@ -5,9 +5,10 @@ The Pi runs `bitvend`, which receives Lightning payments with the
 to the Arduino, one GPIO pulse per quarter.
 
 - **Pricing:** payments are converted at the current BTC/USD price from
-  Coinbase, with Kraken as a fallback. The amount is rounded **up** to the next
-  quarter.
-- **Small payments:** payments worth less than 25¢ are ignored.
+  Coinbase, with Kraken as a fallback. The amount is rounded down to whole
+  quarters, or up if it's within 2% of the next quarter (at least 2¢, at most
+  24¢).
+- **Small payments:** payments worth less than about 23¢ get nothing.
 - **Bookkeeping:** each handled payment gets a private note in the wallet,
   e.g. `bitvend: vended 4 quarters @ $65432/BTC`. Nothing is vended twice.
 

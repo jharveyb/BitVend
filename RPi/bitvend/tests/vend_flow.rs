@@ -100,11 +100,12 @@ async fn payment_becomes_quarters() {
 }
 
 #[tokio::test]
-async fn partial_quarter_rounds_up() {
+async fn nearly_a_quarter_rounds_up_but_a_bit_over_does_not() {
     let mut machine = Machine::new();
-    machine.wallet.receive("a", 260); // 26¢
+    machine.wallet.receive("a", 480); // 48¢: rounds up to 2 quarters
+    machine.wallet.receive("b", 260); // 26¢: just 1 quarter
     machine.run().await.unwrap();
-    assert_eq!(machine.quarters_sent(), 2);
+    assert_eq!(machine.quarters_sent(), 3);
 }
 
 #[tokio::test]

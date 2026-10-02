@@ -32,14 +32,15 @@ use lexe::{
     wallet::LexeWallet,
 };
 
-/// At $100,000/BTC, 600 sats is 60¢, which rounds up to 3 quarters.
+/// At $100,000/BTC, 740 sats is 74¢, which is within 2¢ of 75¢, so it rounds
+/// up to 3 quarters.
 struct FixedPrice;
 impl PriceSource for FixedPrice {
     async fn usd_per_btc(&mut self) -> anyhow::Result<f64> {
         Ok(100_000.0)
     }
 }
-const SATS: u32 = 600;
+const SATS: u32 = 740;
 const EXPECTED_QUARTERS: usize = 3;
 
 fn env_var(name: &str) -> String {
@@ -83,7 +84,7 @@ async fn live_payment_becomes_quarters() {
     let deadline = Instant::now() + Duration::from_secs(180);
     while coins.quarters_sent() == 0 {
         assert!(Instant::now() < deadline, "payment never arrived");
-        wallet::wait_for_payment(&machine).await;
+        wallet::wait_for_payment(&machine).await.unwrap();
         vend::vend_new_payments(&machine, &mut FixedPrice, &mut coins).await.unwrap();
     }
     assert_eq!(coins.quarters_sent(), EXPECTED_QUARTERS);
